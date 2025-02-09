@@ -155,6 +155,13 @@ const Screen = struct {
         @memset(self.buffer, std.mem.zeroes(Char));
     }
 
+    fn setChar(self: *Screen, x: usize, y: usize, char: Char) void {
+        if (x > self.width or x < 0) return;
+        if (y > self.height or y < 0) return;
+
+        self.buffer[y * self.width + x] = char;
+    }
+
     fn render(self: *Screen, component: anytype) void {
         component.render(self, 0, 0);
     }
@@ -183,6 +190,10 @@ fn Container(T: type) type {
 
         fn render(self: *const Self, screen: *Screen, x: usize, y: usize) void {
             const component_constraints: Constraints = self.component.constraints();
+
+            // We should probably fill in the "empty" space with null chars
+            // Since the space might NOT be empty
+            // And we do that with the `Padding` component
 
             const alignment = self.options.alignment orelse Alignment.TopLeft;
             switch (alignment) {
@@ -305,23 +316,23 @@ fn Padding(T: type) type {
 
             for (0..top) |y_offset| {
                 for (0..self_constraints.width + left + right) |i| {
-                    screen.buffer[(y + y_offset) * screen.width + x + i] = Char.empty();
+                    screen.setChar(x + i, y + y_offset, Char.empty());
                 }
             }
 
             for (0..self_constraints.height) |i| {
                 for (0..left) |x_offset| {
-                    screen.buffer[(y + top + i) * screen.width + x + x_offset] = Char.empty();
+                    screen.setChar(x + x_offset, y + top + i, Char.empty());
                 }
 
                 for (0..right) |x_offset| {
-                    screen.buffer[(y + top + i) * screen.width + x + left + self_constraints.width + x_offset] = Char.empty();
+                    screen.setChar(x + left + self_constraints.width + x_offset, y + top + i, Char.empty());
                 }
             }
 
             for (0..bottom) |y_offset| {
                 for (0..self_constraints.width + left + right) |i| {
-                    screen.buffer[(y + top + self_constraints.height + y_offset) * screen.width + x + i] = Char.empty();
+                    screen.setChar(x + i, y + top + self_constraints.height + y_offset, Char.empty());
                 }
             }
         }
@@ -381,16 +392,16 @@ fn Border(T: type) type {
             self.component.render(screen, x + 1, y + 1);
 
             for (0..self_constraints.width + 2) |i| {
-                screen.buffer[y * screen.width + x + i] = Char.fromChar(top);
+                screen.setChar(x + i, y, Char.fromChar(top));
             }
 
             for (0..self_constraints.height) |i| {
-                screen.buffer[(y + 1 + i) * screen.width + x] = Char.fromChar(left);
-                screen.buffer[(y + 1 + i) * screen.width + x + 1 + self_constraints.width] = Char.fromChar(right);
+                screen.setChar(x, y + 1 + i, Char.fromChar(left));
+                screen.setChar(x + 1 + self_constraints.width, y + 1 + i, Char.fromChar(right));
             }
 
             for (0..self_constraints.width + 2) |i| {
-                screen.buffer[(y + 1 + self_constraints.height) * screen.width + x + i] = Char.fromChar(bottom);
+                screen.setChar(x + i, y + 1 + self_constraints.height, Char.fromChar(bottom));
             }
         }
 
@@ -453,7 +464,7 @@ const Text = struct {
                     char.data[11] = 'm';
                 }
 
-                screen.buffer[y * screen.width + x + i] = char;
+                screen.setChar(x + i, y, char);
             } else if (i == self.value.len - 1 or i == self.max_chars - 1) {
                 var char = std.mem.zeroes(Char);
                 char.data[0] = c;
@@ -462,9 +473,9 @@ const Text = struct {
                 char.data[3] = '0';
                 char.data[4] = 'm';
 
-                screen.buffer[y * screen.width + x + i] = char;
+                screen.setChar(x + i, y, char);
             } else {
-                screen.buffer[y * screen.width + x + i] = Char.fromChar(c);
+                screen.setChar(x + i, y, Char.fromChar(c));
             }
         }
     }
