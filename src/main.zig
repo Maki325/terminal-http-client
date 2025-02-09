@@ -17,17 +17,53 @@ pub fn main() !void {
     defer alloc.free(text);
 
     const text_component = try Text.init(text, 10);
+
+    const padding_options: Padding(Text).Options = .{ .sided = .{
+        .left = 1,
+        .top = 2,
+        .right = 3,
+        .bottom = 4,
+    } };
+
+    const text_with_padding = try Padding(Text).init(text_component, padding_options);
+
     // const border_options =.{ .char = '.' };
-    const border_options: Border(Text).Options = .{ .sided = .{
+    const border_options: Border(Padding(Text)).Options = .{ .sided = .{
         .top = '-',
         .left = '|',
         .bottom = '-',
         .right = '|',
     } };
-    const text_with_border = try Border(Text).init(text_component, border_options);
-    screen.render(text_with_border);
+    const text_with_border = try Border(Padding(Text)).init(text_with_padding, border_options);
 
-    try privateANSIMode(screen);
+    const container = try Container(Border(Padding(Text))).init(
+        text_with_border,
+        .{
+            // .width = 20,
+            // .height = 21,
+            .width = screen.width - 2,
+            .height = screen.height - 2,
+            .alignment = .Middle,
+        },
+    );
+
+    var container_with_border = try Border(Container(Border(Padding(Text)))).init(container, border_options);
+
+    screen.render(container_with_border);
+
+    const Alignment = Container(Border(Padding(Text))).Alignment;
+
+    for (0..@typeInfo(Alignment).Enum.fields.len) |i| {
+        const alignment: Alignment = @enumFromInt(i);
+
+        container_with_border.component.options.alignment = alignment;
+        screen.clear();
+        screen.render(container_with_border);
+        try privateANSIMode(screen);
+        // if (true) {
+        //     break;
+        // }
+    }
 }
 
 fn privateANSIMode(screen: Screen) !void {
@@ -53,7 +89,7 @@ fn privateANSIMode(screen: Screen) !void {
         }
     }
 
-    std.time.sleep(10 * std.time.ns_per_s);
+    std.time.sleep(750 * std.time.ns_per_ms);
 
     // Disable the alternative buffer
     std.debug.print("\x1b[?1049l", .{});
@@ -69,6 +105,10 @@ const Char = struct {
         var char = std.mem.zeroes(Char);
         char.data[0] = c;
         return char;
+    }
+
+    fn empty() Char {
+        return std.mem.zeroes(Char);
     }
 };
 
@@ -111,10 +151,192 @@ const Screen = struct {
         self.alloc.free(self.buffer);
     }
 
+    fn clear(self: *Screen) void {
+        @memset(self.buffer, std.mem.zeroes(Char));
+    }
+
     fn render(self: *Screen, component: anytype) void {
         component.render(self, 0, 0);
     }
 };
+
+fn Container(T: type) type {
+    return struct {
+        component: T,
+        options: Options,
+
+        const Self = @This();
+
+        fn init(component: T, options: Options) !Self {
+            return .{
+                .component = component,
+                .options = options,
+            };
+        }
+
+        fn constraints(self: *const Self) Constraints {
+            return Constraints{
+                .width = self.options.width,
+                .height = self.options.height,
+            };
+        }
+
+        fn render(self: *const Self, screen: *Screen, x: usize, y: usize) void {
+            const component_constraints: Constraints = self.component.constraints();
+
+            const alignment = self.options.alignment orelse Alignment.TopLeft;
+            switch (alignment) {
+                .TopLeft => {
+                    self.component.render(screen, x, y);
+                },
+                .TopMiddle => {
+                    const x_offset = @divTrunc(@max(self.options.width - component_constraints.width, 0), 2);
+
+                    self.component.render(screen, x + x_offset, y);
+                },
+                .TopRight => {
+                    const x_offset = @max(self.options.width - component_constraints.width, 0);
+                    self.component.render(screen, x + x_offset, y);
+                },
+
+                .MiddleLeft => {
+                    const y_offset = @divTrunc(@max(self.options.height - component_constraints.height, 0), 2);
+
+                    self.component.render(screen, x, y + y_offset);
+                },
+                .Middle => {
+                    const x_offset = @divTrunc(@max(self.options.width - component_constraints.width, 0), 2);
+                    const y_offset = @divTrunc(@max(self.options.height - component_constraints.height, 0), 2);
+
+                    self.component.render(screen, x + x_offset, y + y_offset);
+                },
+                .MiddleRight => {
+                    const x_offset = @max(self.options.width - component_constraints.width, 0);
+                    const y_offset = @divTrunc(@max(self.options.height - component_constraints.height, 0), 2);
+
+                    self.component.render(screen, x + x_offset, y + y_offset);
+                },
+
+                .BottomLeft => {
+                    const y_offset = @max(self.options.height - component_constraints.height, 0);
+
+                    self.component.render(screen, x, y + y_offset);
+                },
+                .BottomMiddle => {
+                    const x_offset = @divTrunc(@max(self.options.width - component_constraints.width, 0), 2);
+                    const y_offset = @max(self.options.height - component_constraints.height, 0);
+
+                    self.component.render(screen, x + x_offset, y + y_offset);
+                },
+                .BottomRight => {
+                    const x_offset = @max(self.options.width - component_constraints.width, 0);
+                    const y_offset = @max(self.options.height - component_constraints.height, 0);
+
+                    self.component.render(screen, x + x_offset, y + y_offset);
+                },
+            }
+        }
+
+        pub const Options = struct {
+            width: usize,
+            height: usize,
+            alignment: ?Alignment,
+        };
+        pub const Alignment = enum(u8) {
+            TopLeft,
+            TopMiddle,
+            TopRight,
+            MiddleLeft,
+            Middle,
+            MiddleRight,
+            BottomLeft,
+            BottomMiddle,
+            BottomRight,
+        };
+    };
+}
+
+fn Padding(T: type) type {
+    return struct {
+        component: T,
+        options: Options,
+
+        const Self = @This();
+
+        fn init(component: T, options: Options) !Self {
+            return .{
+                .component = component,
+                .options = options,
+            };
+        }
+
+        fn constraints(self: *const Self) Constraints {
+            const component_constraints: Constraints = self.component.constraints();
+            const left, const top, const right, const bottom = self.get_sided();
+
+            return Constraints{
+                .width = component_constraints.width + left + right,
+                .height = component_constraints.height + top + bottom,
+            };
+        }
+
+        fn get_sided(self: *const Self) struct { usize, usize, usize, usize } {
+            switch (self.options) {
+                .same => |c| {
+                    return .{ c, c, c, c };
+                },
+                .sided => |sided| {
+                    return .{
+                        sided.left,
+                        sided.top,
+                        sided.right,
+                        sided.bottom,
+                    };
+                },
+            }
+        }
+
+        fn render(self: *const Self, screen: *Screen, x: usize, y: usize) void {
+            const left, const top, const right, const bottom = self.get_sided();
+
+            const self_constraints: Constraints = self.component.constraints();
+
+            self.component.render(screen, x + left, y + top);
+
+            for (0..top) |y_offset| {
+                for (0..self_constraints.width + left + right) |i| {
+                    screen.buffer[(y + y_offset) * screen.width + x + i] = Char.empty();
+                }
+            }
+
+            for (0..self_constraints.height) |i| {
+                for (0..left) |x_offset| {
+                    screen.buffer[(y + top + i) * screen.width + x + x_offset] = Char.empty();
+                }
+
+                for (0..right) |x_offset| {
+                    screen.buffer[(y + top + i) * screen.width + x + left + self_constraints.width + x_offset] = Char.empty();
+                }
+            }
+
+            for (0..bottom) |y_offset| {
+                for (0..self_constraints.width + left + right) |i| {
+                    screen.buffer[(y + top + self_constraints.height + y_offset) * screen.width + x + i] = Char.empty();
+                }
+            }
+        }
+
+        pub const Options = union(enum) {
+            same: usize,
+            sided: struct {
+                left: usize,
+                top: usize,
+                right: usize,
+                bottom: usize,
+            },
+        };
+    };
+}
 
 fn Border(T: type) type {
     return struct {
@@ -127,6 +349,14 @@ fn Border(T: type) type {
             return .{
                 .component = component,
                 .options = options,
+            };
+        }
+
+        fn constraints(self: *const Self) Constraints {
+            const component_constraints: Constraints = self.component.constraints();
+            return Constraints{
+                .width = component_constraints.width + 2,
+                .height = component_constraints.height + 2,
             };
         }
 
@@ -147,20 +377,20 @@ fn Border(T: type) type {
                 }
             };
 
-            const constraints: Constraints = self.component.constraints();
+            const self_constraints: Constraints = self.component.constraints();
             self.component.render(screen, x + 1, y + 1);
 
-            for (0..constraints.width + 2) |i| {
+            for (0..self_constraints.width + 2) |i| {
                 screen.buffer[y * screen.width + x + i] = Char.fromChar(top);
             }
 
-            for (0..constraints.height) |i| {
+            for (0..self_constraints.height) |i| {
                 screen.buffer[(y + 1 + i) * screen.width + x] = Char.fromChar(left);
-                screen.buffer[(y + 1 + i) * screen.width + x + 1 + constraints.width] = Char.fromChar(right);
+                screen.buffer[(y + 1 + i) * screen.width + x + 1 + self_constraints.width] = Char.fromChar(right);
             }
 
-            for (0..constraints.width + 2) |i| {
-                screen.buffer[(y + 1 + constraints.height) * screen.width + x + i] = Char.fromChar(bottom);
+            for (0..self_constraints.width + 2) |i| {
+                screen.buffer[(y + 1 + self_constraints.height) * screen.width + x + i] = Char.fromChar(bottom);
             }
         }
 
@@ -194,8 +424,8 @@ const Text = struct {
 
     fn constraints(self: *const Text) Constraints {
         return Constraints{
-            .height = 1,
             .width = self.max_chars,
+            .height = 1,
         };
     }
 
